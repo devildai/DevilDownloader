@@ -1,8 +1,8 @@
-# Threaded HTTPServer with Pause, Resume, Play, Delete & Format endpoints
+# Threaded HTTPServer with video sniffer and task deletion
 import json
 from socketserver import ThreadingMixIn
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from app.core.media_resolver import get_video_formats
+from app.core.media_resolver import get_universal_video_formats
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
@@ -46,7 +46,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 if not url:
                     raise ValueError("URL is required")
 
-                result = get_video_formats(url)
+                result = get_universal_video_formats(url)
                 self.send_response(200)
                 self._set_cors()
                 self.send_header('Content-Type', 'application/json')
@@ -110,7 +110,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         elif self.path == '/delete':
             task_id = data.get('id')
-            success = self.engine.delete_task(task_id) if (self.engine and task_id) else False
+            delete_disk = data.get('delete_disk_file', True)
+            success = self.engine.delete_task(task_id, delete_disk_file=delete_disk) if (self.engine and task_id) else False
             self.send_response(200)
             self._set_cors()
             self.send_header('Content-Type', 'application/json')
