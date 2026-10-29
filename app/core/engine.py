@@ -1,9 +1,10 @@
-# Core download engines: Resumable HTTP multi-part with pause/resume, yt-dlp media, BitTorrent, and Google Drive Direct Streamer.
+# Core download engines: True BitTorrent Swarm Downloading, Universal Video Extractor, Resumable Multi-part, and Zero-Disk Drive Streaming.
 import os
 import sys
 import time
 import json
 import uuid
+import shutil
 import threading
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -12,10 +13,9 @@ import yt_dlp
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from google.oauth2.credentials import Credentials
-import torrentp
+import libtorrent as lt
 
 class CloudStreamUploader:
-    """Streams data chunk-by-chunk directly into Google Drive via resumable upload, using zero local disk storage."""
     def __init__(self, service, filename, file_size=None, mime_type="application/octet-stream", parent_id=None):
         self.service = service
         self.filename = filename
@@ -81,11 +81,12 @@ class DownloadTask:
         self.downloaded_bytes = 0
         self.total_bytes = 0
         self.filename = ""
+        self.filepath = ""
         self.error_msg = ""
-        self.part_ranges = [] # [(start, end, part_path, current_downloaded)]
+        self.part_paths = []
         self._cancel_requested = False
         self._pause_requested = False
-        self._worker_thread = None
+        self._torrent_handle = None
 
     def to_dict(self):
         return {
@@ -117,6 +118,9 @@ class DownloadManagerEngine:
         self.gdrive_credentials_cache = None
         self._lock = threading.Lock()
 
+        # Initialize global BitTorrent session
+        self.lt_session = lt.session({'listen_interfaces': '0.0.0.0:6881'})
+
     def set_gdrive_token(self, token_data):
         try:
             if isinstance(token_data, str):
@@ -128,10 +132,11 @@ class DownloadManagerEngine:
 
     def detect_task_type(self, url):
         url_lower = url.lower()
-        if url_lower.startswith("magnet:") or url_lower.endswith(".torrent"):
+        if url_lower.startswith("magnet:") or url_lower.endswith(".torrent") or "torrent" in url_lower:
             return "torrent"
-        media_domains = ["youtube.com", "youtu.be", "vimeo.com", "tiktok.com", "instagram.com/reel", "twitter.com", "x.com"]
-        if any(d in url_lower for d in media_domains):
+        # Known streaming platforms or video URLs
+        media_indicators = ["youtube.com", "youtu.be", "vimeo.com", "tiktok.com", "instagram.com", "twitter.com", "x.com", "facebook.com", "dailymotion.com", ".m3u8", ".mp4"]
+        if any(d in url_lower for d in media_indicators):
             return "media"
         return "http"
 
@@ -161,7 +166,6 @@ class DownloadManagerEngine:
         task._cancel_requested = False
         task._pause_requested = False
         thread = threading.Thread(target=self._run_task_worker, args=(task,), daemon=True)
-        task._worker_thread = thread
         thread.start()
 
     def pause_task(self, task_id):
@@ -170,6 +174,8 @@ class DownloadManagerEngine:
                 task = self.tasks[task_id]
                 if task.status == "downloading":
                     task._pause_requested = True
+                    if task._torrent_handle:
+                        task._torrent_handle.pause()
                     task.status = "paused"
                     task.speed_str = "Paused"
                     return True
@@ -180,9 +186,13 @@ class DownloadManagerEngine:
             if task_id in self.tasks:
                 task = self.tasks[task_id]
                 if task.status in ("paused", "error"):
-                    task.status = "queued"
-                    task.error_msg = ""
-                    self._start_task_thread(task)
+                    if task._torrent_handle:
+                        task._torrent_handle.resume()
+                        task.status = "downloading"
+                    else:
+                        task.status = "queued"
+                        task.error_msg = ""
+                        self._start_task_thread(task)
                     return True
         return False
 
@@ -191,15 +201,37 @@ class DownloadManagerEngine:
             if task_id in self.tasks:
                 task = self.tasks[task_id]
                 task._cancel_requested = True
+                if task._torrent_handle:
+                    self.lt_session.remove_torrent(task._torrent_handle)
+                    task._torrent_handle = None
                 task.status = "cancelled"
                 task.speed_str = "Cancelled"
                 return True
         return False
 
-    def delete_task(self, task_id):
+    def delete_task(self, task_id, delete_disk_file=True):
         with self._lock:
             if task_id in self.tasks:
+                task = self.tasks[task_id]
                 self.cancel_task(task_id)
+
+                # Wipe intermediate .part chunks
+                if hasattr(task, 'part_paths'):
+                    for p in task.part_paths:
+                        if os.path.exists(p):
+                            try: os.remove(p)
+                            except: pass
+
+                # Wipe complete downloaded file on disk if requested
+                if delete_disk_file and task.filepath and os.path.exists(task.filepath):
+                    try:
+                        if os.path.isdir(task.filepath):
+                            shutil.rmtree(task.filepath, ignore_errors=True)
+                        else:
+                            os.remove(task.filepath)
+                    except Exception as e:
+                        print(f"Error removing {task.filepath}: {e}")
+
                 del self.tasks[task_id]
                 return True
         return False
@@ -214,15 +246,103 @@ class DownloadManagerEngine:
             if task.to_gdrive and task.gdrive_token:
                 self._download_direct_to_gdrive(task)
             elif task.target_type == "media":
-                self._download_media_ytdlp(task)
+                self._download_media_universal(task)
             elif task.target_type == "torrent":
-                self._download_torrent(task)
+                self._download_torrent_swarm(task)
             else:
                 self._download_http_multipart(task)
         except Exception as e:
             if not task._pause_requested and not task._cancel_requested:
                 task.status = "error"
                 task.error_msg = str(e)
+
+    def _download_torrent_swarm(self, task):
+        """Downloads actual files from BitTorrent swarm using libtorrent."""
+        task.filename = "Fetching Torrent Metadata..."
+        params = lt.add_torrent_params()
+        params.save_path = task.destination
+
+        # If HTTP URL to .torrent file, download file first to parse metadata
+        if task.url.startswith("http://") or task.url.startswith("https://"):
+            torrent_temp = os.path.join(task.destination, f"temp_{task.id}.torrent")
+            r = requests.get(task.url, timeout=15)
+            with open(torrent_temp, "wb") as f:
+                f.write(r.content)
+            info = lt.torrent_info(torrent_temp)
+            params.ti = info
+            try: os.remove(torrent_temp)
+            except: pass
+        elif task.url.startswith("magnet:"):
+            params = lt.parse_magnet_uri(task.url)
+            params.save_path = task.destination
+        elif os.path.exists(task.url):
+            info = lt.torrent_info(task.url)
+            params.ti = info
+
+        handle = self.lt_session.add_torrent(params)
+        task._torrent_handle = handle
+
+        # Wait for metadata resolution
+        while not handle.has_metadata():
+            if task._cancel_requested:
+                self.lt_session.remove_torrent(handle)
+                return
+            time.sleep(0.5)
+
+        ti = handle.torrent_info()
+        task.filename = ti.name()
+        task.filepath = os.path.join(task.destination, ti.name())
+        task.total_bytes = ti.total_size()
+
+        # Swarm Download loop
+        while not task._cancel_requested:
+            s = handle.status()
+            task.downloaded_bytes = s.total_done
+            if task.total_bytes > 0:
+                task.progress = min(100.0, (s.total_done / task.total_bytes) * 100.0)
+
+            speed_mb = s.download_rate / (1024 * 1024)
+            task.speed_str = f"{speed_mb:.2f} MB/s ({s.num_peers} peers)"
+
+            if s.is_seeding or s.progress >= 1.0:
+                task.progress = 100.0
+                task.status = "completed"
+                task.speed_str = "Seeding/Finished"
+                break
+
+            time.sleep(1)
+
+    def _download_media_universal(self, task):
+        def ytdl_hook(d):
+            if task._pause_requested or task._cancel_requested:
+                raise Exception("Cancelled")
+            if d.get('status') == 'downloading':
+                task.downloaded_bytes = d.get('downloaded_bytes', 0)
+                task.total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+                if task.total_bytes > 0:
+                    task.progress = (task.downloaded_bytes / task.total_bytes) * 100.0
+                spd = d.get('speed') or 0
+                task.speed_str = f"{(spd / (1024*1024)):.2f} MB/s" if spd else "Downloading"
+                fn = d.get('filename', '')
+                if fn:
+                    task.filename = os.path.basename(fn)
+                    task.filepath = fn
+            elif d.get('status') == 'finished':
+                task.progress = 100.0
+                task.status = "completed"
+                task.speed_str = "Finished"
+
+        ydl_opts = {
+            'outtmpl': os.path.join(task.destination, '%(title)s.%(ext)s'),
+            'progress_hooks': [ytdl_hook],
+            'quiet': True,
+            'no_warnings': True
+        }
+        if task.format_id and task.format_id != "direct":
+            ydl_opts['format'] = task.format_id
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([task.url])
 
     def _download_direct_to_gdrive(self, task):
         creds = Credentials.from_authorized_user_info(task.gdrive_token)
@@ -264,47 +384,6 @@ class DownloadManagerEngine:
         task.status = "completed"
         task.speed_str = "Uploaded to Drive"
 
-    def _download_media_ytdlp(self, task):
-        def ytdl_hook(d):
-            if task._pause_requested or task._cancel_requested:
-                raise Exception("Cancelled")
-            if d.get('status') == 'downloading':
-                task.downloaded_bytes = d.get('downloaded_bytes', 0)
-                task.total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
-                if task.total_bytes > 0:
-                    task.progress = (task.downloaded_bytes / task.total_bytes) * 100.0
-                spd = d.get('speed') or 0
-                task.speed_str = f"{(spd / (1024*1024)):.2f} MB/s" if spd else "Downloading"
-                fn = d.get('filename', '')
-                if fn:
-                    task.filename = os.path.basename(fn)
-            elif d.get('status') == 'finished':
-                task.progress = 100.0
-                task.status = "completed"
-                task.speed_str = "Finished"
-
-        ydl_opts = {
-            'outtmpl': os.path.join(task.destination, '%(title)s.%(ext)s'),
-            'progress_hooks': [ytdl_hook],
-            'quiet': True,
-            'no_warnings': True
-        }
-        if task.format_id:
-            ydl_opts['format'] = task.format_id
-        if task.speed_limit_kb > 0:
-            ydl_opts['ratelimit'] = task.speed_limit_kb * 1024
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([task.url])
-
-    def _download_torrent(self, task):
-        task.filename = "Torrent Download"
-        torrent = torrentp.TorrentDownloader(task.url, task.destination)
-        torrent.start_download()
-        task.status = "completed"
-        task.progress = 100.0
-        task.speed_str = "Seeding/Done"
-
     def _download_http_multipart(self, task, num_parts=8):
         head = requests.head(task.url, allow_redirects=True, timeout=15)
         task.total_bytes = int(head.headers.get('content-length', 0))
@@ -313,23 +392,24 @@ class DownloadManagerEngine:
             fname = f"download_{task.id}.bin"
         task.filename = fname
         dest_filepath = os.path.join(task.destination, fname)
+        task.filepath = dest_filepath
 
         accept_ranges = "bytes" in head.headers.get("accept-ranges", "").lower()
         if not accept_ranges or task.total_bytes <= 0:
             self._download_single_stream(task, dest_filepath)
             return
 
-        # Prepare or resume multi-part slices
         part_size = task.total_bytes // num_parts
         part_ranges = []
+        task.part_paths = []
         for i in range(num_parts):
             start = i * part_size
             end = (start + part_size - 1) if i < (num_parts - 1) else (task.total_bytes - 1)
             part_path = f"{dest_filepath}.part{i}"
             part_ranges.append((start, end, part_path))
+            task.part_paths.append(part_path)
 
         part_progress = [0] * num_parts
-        # Check existing bytes on disk for resume support
         for i, (start, end, part_path) in enumerate(part_ranges):
             if os.path.exists(part_path):
                 part_progress[i] = os.path.getsize(part_path)
@@ -396,7 +476,6 @@ class DownloadManagerEngine:
                     os.remove(part_path)
             return
 
-        # Stitch segmented chunks into the complete final file
         task.speed_str = "Merging parts..."
         with open(dest_filepath, "wb") as final_file:
             for _, _, part_path in part_ranges:
