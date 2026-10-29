@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Devil Downloader Interceptor",
+  "version": "1.2.0",
+  "description": "Auto-detects downloads, injects floating video quality download overlay on YouTube, and cloud-streams to Google Drive.",
+  "permissions": [
+    "downloads",
+    "contextMenus",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Devil Downloader"
+  }
+}
