@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 280px;
+      padding: 14px;
+      font-family: sans-serif;
+      background: #09090b;
+      color: #f8fafc;
+      margin: 0;
+    }
+    h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      display: inline-block;
+      box-shadow: 0 0 6px #ef4444;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #27272a;
+      background: #141418;
+      color: white;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      background: #dc2626;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    button:hover {
+      background: #b91c1c;
+    }
+    button.gdrive {
+      background: #059669;
+    }
+    button.gdrive:hover {
+      background: #047857;
+    }
+  </style>
+</head>
+<body>
+  <h3><span class="status-dot"></span> Devil Downloader</h3>
+  <input type="text" id="quick-url" placeholder="Paste link, video, or magnet URI...">
+  <button id="btn-download">Download with Devil</button>
+  <button id="btn-gdrive" class="gdrive">Stream Direct to G-Drive</button>
+
+  <script>
+    async function trigger(toGdrive) {
+      const url = document.getElementById('quick-url').value.trim();
+      if (!url) return;
+      try {
+        await fetch('http://127.0.0.1:9654/download', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url: url, to_gdrive: toGdrive })
+        });
+        window.close();
+      } catch(e) {
+        alert("Devil Downloader app is not running!");
+      }
+    }
+    document.getElementById('btn-download').onclick = () => trigger(false);
+    document.getElementById('btn-gdrive').onclick = () => trigger(true);
+  </script>
+</body>
+</html>
