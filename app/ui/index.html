@@ -7,8 +7,8 @@
   <style>
     :root {
       --bg-dark: #070709;
-      --panel-glass: rgba(18, 18, 24, 0.75);
-      --card-glass: rgba(26, 26, 36, 0.65);
+      --panel-glass: rgba(18, 18, 24, 0.85);
+      --card-glass: rgba(22, 22, 30, 0.75);
       --border-glass: rgba(245, 238, 220, 0.12);
       --cream: #f5eedc;
       --cream-dim: #c5beae;
@@ -37,9 +37,9 @@
       flex-direction: column;
     }
 
-    /* Glass Navbar */
+    /* Top Bar */
     header {
-      background: rgba(10, 10, 14, 0.85);
+      background: rgba(10, 10, 14, 0.9);
       backdrop-filter: blur(20px);
       border-bottom: 1px solid var(--border-glass);
       padding: 12px 24px;
@@ -55,19 +55,11 @@
       gap: 12px;
     }
 
-    .brand-icon {
+    .brand-logo-img {
       width: 32px;
       height: 32px;
       border-radius: 8px;
-      background: linear-gradient(135deg, #e11d48, #881337);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 900;
-      color: var(--cream);
-      font-size: 16px;
-      border: 1px solid rgba(226, 199, 146, 0.35);
-      box-shadow: 0 0 16px var(--crimson-glow);
+      box-shadow: 0 0 12px var(--gold-glow);
     }
 
     .brand-title {
@@ -81,13 +73,13 @@
 
     .brand-badge {
       font-size: 10px;
-      letter-spacing: 1px;
+      letter-spacing: 1.2px;
       text-transform: uppercase;
       padding: 3px 8px;
       border-radius: 12px;
-      background: rgba(226, 199, 146, 0.1);
+      background: rgba(226, 199, 146, 0.12);
       color: var(--cream-gold);
-      border: 1px solid rgba(226, 199, 146, 0.25);
+      border: 1px solid rgba(226, 199, 146, 0.3);
       font-weight: 700;
     }
 
@@ -136,7 +128,7 @@
       height: calc(100vh - 61px);
     }
 
-    /* Sidebar Glass */
+    /* Sidebar */
     aside {
       width: 230px;
       background: var(--panel-glass);
@@ -199,7 +191,7 @@
       gap: 12px;
     }
 
-    /* Glass Cards */
+    /* Task Cards */
     .task-card {
       background: var(--card-glass);
       backdrop-filter: blur(16px);
@@ -257,7 +249,7 @@
       background: rgba(245, 238, 220, 0.08);
       border: 1px solid var(--border-glass);
       color: var(--cream);
-      padding: 5px 10px;
+      padding: 6px 12px;
       border-radius: 6px;
       font-size: 11px;
       font-weight: 600;
@@ -271,10 +263,20 @@
       border-color: rgba(226, 199, 146, 0.4);
     }
 
-    .action-btn.delete:hover {
-      background: rgba(225, 29, 72, 0.25);
+    .action-btn.delete {
+      background: rgba(225, 29, 72, 0.15);
+      border-color: rgba(225, 29, 72, 0.35);
       color: #fda4af;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 10px;
+    }
+
+    .action-btn.delete:hover {
+      background: rgba(225, 29, 72, 0.4);
+      color: #ffffff;
       border-color: #e11d48;
+      box-shadow: 0 0 10px var(--crimson-glow);
     }
 
     .task-meta {
@@ -301,7 +303,7 @@
       box-shadow: 0 0 10px var(--crimson-glow);
     }
 
-    /* Modal Glass */
+    /* Modal */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -391,9 +393,15 @@
 
   <header>
     <div class="brand">
-      <div class="brand-icon">D</div>
+      <svg class="brand-logo-img" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="256" height="256" rx="52" fill="#0D0D10" stroke="#E2C792" stroke-width="6"/>
+        <path d="M128 196L72 132H104V72H152V132H184L128 196Z" fill="#F5EEDC"/>
+        <path d="M80 66L100 32L110 66H80Z" fill="#E11D48"/>
+        <path d="M176 66L156 32L146 66H176Z" fill="#E11D48"/>
+        <rect x="68" y="210" width="120" height="12" rx="6" fill="#E2C792"/>
+      </svg>
       <div class="brand-title">Devil Downloader</div>
-      <span class="brand-badge">Premium Glass</span>
+      <span class="brand-badge">Pro Edition</span>
     </div>
     <div class="header-actions">
       <button onclick="openModal()">+ Add Download</button>
@@ -410,8 +418,8 @@
       <div class="nav-item" onclick="filterCategory('completed', event)">Completed</div>
       <div class="nav-label">Protocols & Cloud</div>
       <div class="nav-item" onclick="filterCategory('http', event)">HTTP Multi-Part</div>
-      <div class="nav-item" onclick="filterCategory('media', event)">YouTube & Media</div>
-      <div class="nav-item" onclick="filterCategory('torrent', event)">BitTorrent / Magnets</div>
+      <div class="nav-item" onclick="filterCategory('media', event)">Universal Video</div>
+      <div class="nav-item" onclick="filterCategory('torrent', event)">BitTorrent Swarm</div>
       <div class="nav-item" onclick="filterCategory('gdrive', event)">Google Drive (0% Disk)</div>
     </aside>
 
@@ -427,7 +435,7 @@
     <div class="modal">
       <h2>New Download Task</h2>
       <div class="form-group">
-        <label>URL / Video Link / Magnet URI</label>
+        <label>URL / Video Link / Magnet URI / Torrent File Path</label>
         <input type="text" id="task-url" placeholder="https://... or magnet:?xt=...">
       </div>
       <div class="checkbox-group">
@@ -446,7 +454,7 @@
     <div class="modal">
       <h2>Google Drive Direct Link Setup</h2>
       <p style="font-size: 13px; color: var(--cream-dim); margin-bottom: 14px; line-height: 1.5;">
-        Paste your Google Drive OAuth JSON tokens or client credentials to enable high-speed direct cloud streaming straight to your Drive.
+        Paste your Google Drive OAuth JSON tokens or client credentials to enable direct cloud streaming straight to your Drive.
       </p>
       <div class="form-group">
         <label>OAuth Token JSON</label>
@@ -520,16 +528,18 @@
     }
 
     async function deleteTask(id) {
-      if (window.pywebview && window.pywebview.api) {
-        await window.pywebview.api.delete_task(id);
-      } else {
-        await fetch('http://127.0.0.1:9654/delete', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ id: id })
-        });
+      if (confirm("Delete this download and remove the files from your computer?")) {
+        if (window.pywebview && window.pywebview.api) {
+          await window.pywebview.api.delete_task(id);
+        } else {
+          await fetch('http://127.0.0.1:9654/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ id: id, delete_disk_file: true })
+          });
+        }
+        fetchTasks();
       }
-      fetchTasks();
     }
 
     async function saveDriveToken() {
@@ -603,7 +613,7 @@
               </div>
               <div class="task-controls">
                 ${playPauseBtn}
-                <button class="action-btn delete" onclick="deleteTask('${t.id}')">✕</button>
+                <button class="action-btn delete" title="Delete Task & File" onclick="deleteTask('${t.id}')">✕</button>
               </div>
             </div>
             <div class="progress-bar-container">
